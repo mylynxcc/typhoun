@@ -1,0 +1,49 @@
+# Continuous integration.
+#
+# `npm test` is the project's contract: it runs the lexer, parser, resolver,
+# both engines, the bytecode invariants, the formatter, the linter, the module
+# loader and the CLI — including a spawned `bin/typhoun.js` — as 613 tests. It
+# needs nothing else, because Typhoun has no runtime dependencies and no build
+# step.
+#
+# There is deliberately no `npm ci` and no cache step. The project has no
+# dependencies, so no lock file is committed, and `actions/setup-node`'s
+# `cache: npm` fails without one. Adding either would break this workflow rather
+# than speed it up.
+#
+# The matrix spans the runtime the package declares support for (`engines`:
+# ">= 20") and the LTS lines above it, so a change that only works on the
+# development version is caught here instead of by a user.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: npm test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      # One failing Node version must not hide the others: the point of the
+      # matrix is to learn which runtimes are affected.
+      fail-fast: false
+      matrix:
+        node: ["20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: npm test
+        run: npm test
