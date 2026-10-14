@@ -124,6 +124,28 @@ tests, and document it.
 
 ---
 
+## Releases
+
+Cutting a release is a CHANGELOG edit, not a command. `.github/workflows/release.yml`
+derives everything from the file, so the tag and the notes cannot disagree with
+what the project says it shipped:
+
+1. Replace the `## [Unreleased]` heading with `## [<version>] — <date>`, where
+   `<version>` is a plain `x.y.z` (nothing else, no `v`).
+2. Move the entries that shipped under it. Its body becomes the release notes
+   verbatim, so write it for someone reading the repository front page.
+3. Merge to `main`.
+
+Once `CI` finishes green the release workflow tags the merge commit and
+publishes the release from that section. It is idempotent: if the tag already
+exists it reports `releasable=false` and stops, so re-running it — or merging
+while it is still going — cannot publish twice. `node tools/release/plan-release.js`
+reports the same decision locally without touching GitHub, and
+`node tools/release/plan-release.js --tagged v0.1.0` lets you check what a
+CHANGELOG edit *would* release before you merge it.
+
+---
+
 ## Reporting bugs
 
 Include the Typhoun version (`typhoun version`), the Node.js version, the
