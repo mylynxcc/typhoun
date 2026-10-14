@@ -166,10 +166,11 @@ property rather than a claim:
 | `tests/engine/compiler.test.js` | emitted instructions, jump patching, slot layout, constant interning, closures |
 | `tests/engine/vm.test.js` | runtime behaviour of the bytecode engine alone |
 | `tests/engine/parity.test.js` | **byte-identical output and diagnostics** between `tree` and `vm` for every example, fixture and benchmark program, plus an error-handling corpus (error values, call stacks, nesting, uncatchable limits) |
+| `tests/engine/differential-fuzz.test.js` | **generated** programs nobody wrote by hand: identical output text, or an identical diagnostic, on both engines — from a seeded corpus that is bounded and checked for coverage |
 | `tests/engine/bytecode-invariants.test.js` | structural invariants over every compiled chunk (valid opcodes, jumps in range, slot and constant indices in range, every `TRY_BEGIN` landing on a real handler) |
 | `tests/integration/benchmark.test.js` | the harness itself: both engines really run, mismatches are detected and reported, reports render |
 
-`npm test` runs 636 tests (on every push and pull request, across Node 20, 22
+`npm test` runs 654 tests (on every push and pull request, across Node 20, 22
 and 24 — see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). Parity
 is checked on **output text**, not just exit
 codes, so a divergence surfaces as a test failure instead of a silently
@@ -179,6 +180,15 @@ caught error value and the frames in its `stack` have to match to the byte.
 One real bug was found this way and fixed in the tree-walker: a named function
 expression resolved its own name but failed at runtime, and a `break` inside a
 nested `for…in` popped its scope slots twice, corrupting the value stack.
+
+Agreement is not only asserted but *fuzzed*. `tests/engine/differential-fuzz.test.js`
+generates programs nobody wrote by hand and requires the two engines to produce
+the same output, or the same diagnostic, for every one of them. The corpus is
+seeded, so a failure names its seed and round and replays exactly, and bounded,
+so it costs a fraction of a second beside the rest of the suite on every push.
+It is also the method that found the temporal-dead-zone divergence — a store or
+a read above the block's own `let` — so that shape stays in the generated
+corpus, where it can no longer come back unnoticed.
 
 ---
 

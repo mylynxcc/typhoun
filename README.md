@@ -199,7 +199,7 @@ const { context } = runSource('print(1 + 1)');
 ## Testing
 
 ```bash
-npm test            # node --test  (636 tests)
+npm test            # node --test  (654 tests)
 npm run test:verbose
 npm run bench       # tree-walker vs bytecode VM, measured
 ```
@@ -222,6 +222,7 @@ Coverage by stage:
 | Bytecode compiler | `tests/engine/compiler.test.js` | emitted instructions, jump patching, slots, constants |
 | Bytecode VM | `tests/engine/vm.test.js` | the `vm` engine on its own |
 | Engine parity | `tests/engine/parity.test.js` | byte-identical output and diagnostics on both engines |
+| Differential fuzzing | `tests/engine/differential-fuzz.test.js` | generated programs on both engines: identical output or identical diagnostic, from a seeded and bounded corpus |
 | Bytecode invariants | `tests/engine/bytecode-invariants.test.js` | valid opcodes, in-range jumps, handler boundaries, slots, constants |
 | Formatter | `tests/format/` | canonical layout, idempotency, AST equivalence, comments, width, broken-input refusal |
 | Linter | `tests/lint/` | every rule (firing and silent cases), rule selection, imports, repo cleanliness, and randomized falsification of every dead-store report |

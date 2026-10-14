@@ -7,7 +7,30 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+**Differential fuzzing, as a test rather than a script** (see
+[docs/bytecode.md](docs/bytecode.md) §5)
+
+* `tests/engine/differential-fuzz.test.js` generates programs nobody wrote by
+  hand — expressions over every operator and atom type, and programs with
+  shadowing blocks, loops, per-iteration closures, bounded recursion and
+  handlers — runs each on both engines and requires the two observable results
+  to be identical: the same output text, or the same diagnostic code, message
+  and stack depth. It runs with the rest of the suite, so a divergence now fails
+  CI on the push that introduced it instead of being found by hand later.
+* The corpus is seeded and bounded, which is what makes that possible: every
+  program comes from a deterministic LCG, so a failure names its seed and round
+  and replays exactly, and every program runs under explicit step and depth
+  limits, so a generated program cannot hang the suite. The generators keep
+  every loop counter monotone for the same reason — the two engines stop a
+  runaway program at different points by design, and that surviving output
+  prefix is explicitly not part of the parity contract.
+* It refuses to pass vacuously: each corpus has to show programs that ran to
+  completion, programs that failed, and a spread of diagnostic codes, including
+  the staged `TYP3008` the two engines once disagreed about. The shape of that
+  divergence — a store or a read above the block's own `let` — stays in the
+  generated corpus, so it cannot come back unnoticed.
 
 ---
 
