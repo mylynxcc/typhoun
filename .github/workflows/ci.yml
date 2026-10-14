@@ -137,8 +137,11 @@ jobs:
           echo "notes in the payload: $planned characters, notes written: $written"
           test "$planned" = "$written"
 
-          # Nothing was created: the dry run stopped short of the API.
-          test -z "$(git ls-remote --tags origin v9.9.9)"
+          # Nothing was created: the dry run stopped short of the API. The
+          # lookup has to succeed as well as come back empty — a network or auth
+          # failure must not be readable as "the tag is not there".
+          published_tag=$(git ls-remote --tags origin "v9.9.9")
+          test -z "$published_tag"
 
       # And the gate that makes running this on every push safe: once the
       # derived tag exists, the publish path stops before it touches anything.
