@@ -15,12 +15,12 @@ to Typhoun tokens and a Typhoun AST, resolved by Typhoun's semantic analyzer
 and executed by Typhoun's interpreter. No host `eval`, no shelling out, no
 transpilation.
 
-There are **two execution backends** for the same language. `--engine tree`
-runs the tree-walking interpreter (the default); `--engine vm` compiles the
-resolved AST to bytecode and runs it on a stack VM. They share everything but
-control flow, and their output parity is asserted by the test suite. The VM is
-the slower backend on Node — [docs/bytecode.md](docs/bytecode.md) has the
-measured numbers and the reason.
+There are **two execution backends** for the same language. `--engine vm`
+compiles the resolved AST to bytecode and runs it on a stack VM (the default);
+`--engine tree` walks the AST directly. They share everything but control flow,
+and their output parity is asserted by the test suite. The tree-walker is still
+the quicker of the two on Node — [docs/bytecode.md](docs/bytecode.md) has the
+measured numbers and the reason — so `--engine tree` is worth knowing about.
 
 ```typ
 // hello.typ
@@ -175,7 +175,7 @@ Full details: [docs/language-spec.md](docs/language-spec.md) and
    │      Runtime            src/runtime/         values, environments, limits, faults
    ├─ F₂ Compiler            src/compiler/        resolved AST → bytecode chunks
    │      Bytecode           src/bytecode/        opcodes, chunks, disassembler
-   │      VM                 src/vm/               stack machine (engine "vm")
+   │      VM                 src/vm/               stack machine (engine "vm", the default)
    ├─ G  Standard library    src/builtins/        30 argument-checked built-ins
    ├─   Modules              src/modules/         rooted, cached, cycle-safe loader
    └─ H  Diagnostics         src/diagnostics/     codes, structure, rendering
@@ -294,9 +294,11 @@ typhoun/
 * No static type checking, no classes, no `finally`, no user-raised errors and
   no concurrency. `try`/`catch` handles runtime errors; what it cannot catch is
   listed in [docs/language-spec.md](docs/language-spec.md) §9.2.
-* No JIT and no native code generation. There *is* a bytecode compiler and
-  stack VM (`--engine vm`), and it is currently **slower** than the tree-walker
-  on Node — it stays correct and tested, and `tree` remains the default. See
+* No JIT and no native code generation. The bytecode compiler and stack VM
+  (`vm`) is the default engine, and on Node it is currently **slower** than the
+  tree-walking interpreter — a median 0.37x of its speed over the benchmark
+  suite, so `--engine tree` is the quick backend for now. Both stay correct and
+  tested, and the suite asserts they agree; see
   [docs/bytecode.md](docs/bytecode.md) for the measured numbers.
 * `maxCollectionSize` bounds element counts, not bytes; there is no custom
   garbage collector.

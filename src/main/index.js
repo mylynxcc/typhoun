@@ -113,9 +113,18 @@ function makeContext(options) {
   );
 }
 
-/** Execution backends. `tree` walks the AST; `vm` runs compiled bytecode. */
+/**
+ * Execution backends. `tree` walks the AST; `vm` runs compiled bytecode.
+ *
+ * `vm` is the default: compiling first is the path the project intends to grow
+ * along (see `docs/bytecode.md`), and both engines are required to agree, so
+ * the choice is about which one the project exercises by default rather than
+ * about which language a program sees. It is not yet the quick one — over the
+ * benchmark suite the VM runs at a median 0.37x of the tree-walker's speed — so
+ * `--engine tree` remains available as the faster backend.
+ */
 export const ENGINES = Object.freeze(["tree", "vm"]);
-export const DEFAULT_ENGINE = "tree";
+export const DEFAULT_ENGINE = "vm";
 
 /**
  * Build an execution engine by name. Both engines expose the same runtime

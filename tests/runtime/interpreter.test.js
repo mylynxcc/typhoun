@@ -4,7 +4,25 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Code } from "../../src/diagnostics/codes.js";
-import { outputOf, expectFailure, firstDiagnostic, execute, runSource } from "../helpers.js";
+import {
+  outputOf as outputOfAny,
+  expectFailure as expectFailureAny,
+  execute as executeAny,
+  firstDiagnostic,
+  runSource,
+} from "../helpers.js";
+
+/**
+ * Stage F is the tree-walking interpreter, so every case in this file names it.
+ * The project's default engine is the bytecode VM now, and a file that left the
+ * engine out would have quietly stopped testing the interpreter the moment that
+ * changed. The VM's own runtime coverage lives in `tests/engine/vm.test.js`, and
+ * the two backends are held together by `tests/engine/parity.test.js` — which,
+ * like the differential fuzzing beside it, selects both engines explicitly.
+ */
+const execute = (source, options = {}) => executeAny(source, { engine: "tree", ...options });
+const outputOf = (source, options = {}) => outputOfAny(source, { engine: "tree", ...options });
+const expectFailure = (source, options = {}) => expectFailureAny(source, { engine: "tree", ...options });
 
 describe("runtime: arithmetic", () => {
   it("evaluates the four operations and remainder", () => {
@@ -465,6 +483,7 @@ describe("runtime: try/catch", () => {
     let step = null;
     try {
       runSource('try { let i = 0\nwhile true { i += 1 } } catch err { print("swallowed") }', "<test>", {
+        engine: "tree",
         limits: { maxSteps: 5000 },
         onOutput: (text) => chunks.push(text),
       });

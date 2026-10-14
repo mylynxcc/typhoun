@@ -404,8 +404,9 @@ These are **not** implemented and are not claimed to be:
   a program: an error value can be inspected and re-checked, but only the
   runtime raises one (`assert` is the built-in way to raise your own).
 * No classes, interfaces or methods.
-* No native code generation; execution is a tree-walking interpreter or a
-  bytecode virtual machine (`--engine vm`), and the two are required to agree.
+* No native code generation; execution is a bytecode virtual machine (the
+  default) or a tree-walking interpreter (`--engine tree`), and the two are
+  required to agree.
 * No concurrency or async primitives.
 * No package manager; modules are local files only.
 * `for ... in` over a map yields keys, not entries.

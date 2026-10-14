@@ -62,7 +62,8 @@ v0.1 unless it is also in the v0.1 column of the status table.**
 
 The first three items shipped early, in v0.1 — see
 [bytecode.md](bytecode.md). What remains opens with making the VM *faster* than
-the tree-walker rather than merely equal to it:
+the tree-walker rather than merely equal to it — and the VM is the default
+engine now, so that difference is one users meet rather than a footnote:
 
 * ~~Bytecode instruction set definition and a compiler from the AST.~~
   (v0.1)

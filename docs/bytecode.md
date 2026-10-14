@@ -4,8 +4,8 @@ Typhoun has **two execution backends** for the same language:
 
 | engine | implementation | selected with | default |
 | --- | --- | --- | --- |
-| `tree` | tree-walking interpreter (`src/interpreter/`) | `--engine tree` | yes |
-| `vm` | bytecode compiler + stack VM (`src/compiler/`, `src/bytecode/`, `src/vm/`) | `--engine vm` | no |
+| `tree` | tree-walking interpreter (`src/interpreter/`) | `--engine tree` | no |
+| `vm` | bytecode compiler + stack VM (`src/compiler/`, `src/bytecode/`, `src/vm/`) | `--engine vm` | **yes** |
 
 They share everything *except* control flow: the source manager, lexer, parser,
 AST, resolver, value representation, equality and truthiness rules, operators,
@@ -37,7 +37,8 @@ take an `engine` option, so the CLI, the tests and any embedding host switch
 backends with one parameter:
 
 ```bash
-typhoun run --engine vm examples/hello.typ
+typhoun run examples/hello.typ                # the VM, compiled first — the default
+typhoun run --engine tree examples/hello.typ  # the tree-walker, no compile step
 typhoun dis benchmarks/sort.typ        # compile to bytecode, print the disassembly
 typhoun bench                          # both engines, same programs, measured
 ```
@@ -358,8 +359,12 @@ The histogram points at three moves:
    table — to remove the switch ladder itself and with it the last large
    function that a cold site can deoptimise.
 
-Until one of those lands, `tree` stays the default engine, and the VM earns its
-keep as an independent implementation that the tree-walker is tested against.
+The `vm` is now the default engine, which turns that remaining gap into a
+user-facing one rather than a curiosity: over the benchmark suite it runs at a
+median 0.37x of the tree-walker's speed, so `--engine tree` is the quick backend
+today and the three moves above are how the default becomes the fast one too.
+Until then the VM earns its place twice over — as the default, and as the
+independent implementation the tree-walker is tested against.
 
 ---
 

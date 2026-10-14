@@ -51,6 +51,29 @@ This project follows [Semantic Versioning](https://semver.org/).
   publish are that section verbatim and that nothing was created. That path used
   to run once per version, so a mistake in it was found by the release it broke.
 
+### Changed
+
+**The bytecode VM is the default engine**
+
+* `typhoun run`, the REPL, the test suite and the embedding API now select `vm`
+  unless `--engine tree` says otherwise. `DEFAULT_ENGINE` is the single place
+  that decides it, so the CLI help text — now `--engine <name>  Execution
+  backend: tree | vm (default: vm)` — follows from that one line rather than
+  from a second default kept somewhere else. Compiling to bytecode first is the
+  path the project intends to grow along, and the two engines are still required
+  to agree: every example, benchmark and error fixture produces identical
+  output, diagnostics and exit code on both, checked through the CLI as well as
+  through the API.
+* The step is deliberately slower, and worth stating plainly: over the benchmark
+  suite the VM runs at a median 0.37x of the tree-walker's speed (306.8 ms
+  against 761.7 ms for the same seven programs on Node 22), so `--engine tree`
+  remains the quick backend until the work in
+  [docs/bytecode.md](docs/bytecode.md) §7 closes that gap.
+* `tests/runtime/interpreter.test.js` now names `engine: "tree"` explicitly. It
+  is the tree-walking interpreter's suite, and a file that simply followed the
+  default would have stopped testing the interpreter the moment the default
+  changed, without ever saying so.
+
 ---
 
 ## [0.1.0] — 2026-10-14
