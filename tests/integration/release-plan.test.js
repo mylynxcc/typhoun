@@ -8,7 +8,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -17,6 +17,7 @@ import {
   isReleasableVersion,
   latestRelease,
   parseChangelog,
+  publishRelease,
   releaseNotes,
 } from "../../tools/release/plan-release.js";
 
@@ -42,6 +43,40 @@ function plan(args) {
     outputs[line.slice(0, eq)] = line.slice(eq + 1);
   }
   return outputs;
+}
+
+/**
+ * Run the planner without throwing, keeping stdout and stderr apart — the
+ * publish path reports on both, and the split is part of its contract.
+ */
+function run(args, env) {
+  // `spawnSync`, not `execFileSync`: the publish path reports the plan on stderr
+  // and still exits 0, and execFileSync only hands stderr over when it throws.
+  const result = spawnSync(process.execPath, [planner, ...args], {
+    encoding: "utf8",
+    env: env ?? process.env,
+  });
+  return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+}
+
+/**
+ * A transport that answers from a script and records what it was asked, so the
+ * publish logic can be tested against 404s, 200s and failures without a
+ * repository — the interesting behaviour is "check, then create only what is
+ * missing", not the HTTP call itself.
+ */
+function scriptedTransport(responses) {
+  const calls = [];
+  let index = 0;
+  return {
+    calls,
+    async send(method, path, body) {
+      calls.push({ method, path, body });
+      const response = responses[index++];
+      if (!response) throw new Error(`unexpected request ${method} ${path}`);
+      return response;
+    },
+  };
 }
 
 describe("release planner: parsing", () => {
@@ -146,5 +181,186 @@ describe("release planner: the command line", () => {
     for (const line of stdout.trim().split("\n")) {
       assert.match(line, /^[a-z_]+=.*$/, `not a GITHUB_OUTPUT line: ${JSON.stringify(line)}`);
     }
+  });
+});
+describe("release planner: what a publish would do", () => {
+  const NOTES = "Second release.\n\n### Added\n\n* Something new.";
+  const SHA = "0221268bd161bf3ce7076448b2cf59cb290ccc9c";
+  const REPO = "mylynxcc/typhoun";
+  const base = { tag: "v0.2.0", repo: REPO, sha: SHA, notes: NOTES, event: () => {} };
+
+  it("creates the tag, then the release, with the notes as the body", async () => {
+    const transport = scriptedTransport([
+      { status: 404, payload: {} },
+      { status: 404, payload: {} },
+      { status: 201, payload: {} },
+      { status: 201, payload: { html_url: "https://example.test/release" } },
+    ]);
+    const report = await publishRelease({ ...base, send: transport.send });
+
+    assert.deepEqual(
+      transport.calls.map((call) => `${call.method} ${call.path}`),
+      [
+        `GET /repos/${REPO}/releases/tags/v0.2.0`,
+        `GET /repos/${REPO}/git/ref/refs/tags/v0.2.0`,
+        `POST /repos/${REPO}/git/refs`,
+        `POST /repos/${REPO}/releases`,
+      ],
+      "the tag has to exist before the release points at it",
+    );
+    assert.deepEqual(transport.calls[2].body, { ref: "refs/tags/v0.2.0", sha: SHA });
+    assert.deepEqual(transport.calls[3].body, {
+      tag_name: "v0.2.0",
+      name: "Typhoun v0.2.0",
+      body: NOTES,
+      draft: false,
+      prerelease: false,
+    });
+    assert.equal(report.releaseCreated, true);
+    assert.equal(report.releaseUrl, "https://example.test/release");
+  });
+
+  it("reuses a tag that already exists instead of moving it", async () => {
+    const transport = scriptedTransport([
+      { status: 404, payload: {} },
+      { status: 200, payload: {} },
+      { status: 201, payload: { html_url: "https://example.test/release" } },
+    ]);
+    await publishRelease({ ...base, send: transport.send });
+
+    assert.equal(
+      transport.calls.some((call) => call.method === "POST" && call.path.endsWith("/git/refs")),
+      false,
+      "a tag that exists is never rewritten",
+    );
+    assert.equal(transport.calls.length, 3);
+  });
+
+  it("leaves an existing release completely alone", async () => {
+    const transport = scriptedTransport([
+      { status: 200, payload: { html_url: "https://example.test/existing" } },
+    ]);
+    const report = await publishRelease({ ...base, send: transport.send });
+
+    assert.equal(transport.calls.length, 1, "only the lookup, no writes");
+    assert.equal(report.releaseCreated, false);
+    assert.equal(report.releaseUrl, "https://example.test/existing");
+  });
+
+  it("fails loudly when the API refuses to create the tag", async () => {
+    const transport = scriptedTransport([
+      { status: 404, payload: {} },
+      { status: 404, payload: {} },
+      { status: 422, payload: { message: "Reference already exists" } },
+    ]);
+    await assert.rejects(
+      () => publishRelease({ ...base, send: transport.send }),
+      /cannot create refs\/tags\/v0\.2\.0: HTTP 422 Reference already exists/,
+    );
+  });
+
+  it("does not mistake a broken lookup for an absent release", async () => {
+    const transport = scriptedTransport([{ status: 403, payload: {} }]);
+    await assert.rejects(
+      () => publishRelease({ ...base, send: transport.send }),
+      /cannot check for an existing release: HTTP 403/,
+    );
+    assert.equal(transport.calls.length, 1, "a failed check must not be read as 'nothing there'");
+  });
+});
+
+describe("release planner: dry run", () => {
+  const CHANGELOG = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "",
+    "Nothing yet.",
+    "",
+    "---",
+    "",
+    "## [0.2.0] — 2026-11-01",
+    "",
+    "Second release.",
+    "",
+    "### Added",
+    "",
+    "* Something new.",
+    "",
+  ].join("\n");
+  const SHA = "0221268bd161bf3ce7076448b2cf59cb290ccc9c";
+
+  function dryRun(extra = []) {
+    const { dir, path } = scratch(CHANGELOG);
+    const notesOut = join(dir, "notes.md");
+    return {
+      notesOut,
+      dir,
+      result: run(
+        [
+          "--changelog",
+          path,
+          "--tagged",
+          "v0.1.0",
+          "--notes-out",
+          notesOut,
+          "--repo",
+          "mylynxcc/typhoun",
+          "--sha",
+          SHA,
+          "--publish",
+          "--dry-run",
+          ...extra,
+        ],
+        // No credentials at all: a dry run must be usable wherever it is safe to
+        // read the CHANGELOG, which is what lets CI exercise it on every push.
+        { ...process.env, GITHUB_TOKEN: "", GH_TOKEN: "" },
+      ),
+    };
+  }
+
+  it("walks the tagging and notes path without sending anything", () => {
+    const { result, notesOut } = dryRun();
+    assert.equal(result.status, 0, result.stderr);
+
+    const outputs = {};
+    for (const line of result.stdout.trim().split("\n")) {
+      const eq = line.indexOf("=");
+      outputs[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    assert.equal(outputs.releasable, "true");
+    assert.equal(outputs.tag, "v0.2.0");
+    assert.equal(outputs.dry_run, "true");
+    assert.equal(outputs.published, "false", "a dry run never claims to have published");
+    assert.equal(outputs.planned_requests, "4");
+
+    assert.match(result.stderr, /POST \/repos\/mylynxcc\/typhoun\/git\/refs\n/);
+    assert.match(result.stderr, /"ref": "refs\/tags\/v0\.2\.0"/);
+    assert.match(result.stderr, /POST \/repos\/mylynxcc\/typhoun\/releases\n/);
+
+    // The payload is built from the same notes that were written out, so the
+    // body a real run would publish is exactly this CHANGELOG section.
+    const notes = readFileSync(notesOut, "utf8").trim();
+    assert.equal(notes, "Second release.\n\n### Added\n\n* Something new.");
+    assert.match(result.stderr, new RegExp(`"body": ${notes.length} characters of notes`));
+
+    // Nothing was sent. That this succeeded at all with both credentials emptied
+    // is the evidence: the live transport refuses to run without a token, so no
+    // live transport was reached.
+  });
+
+  it("stops at the idempotency check when the derived tag already exists", () => {
+    const { result } = dryRun(["--tagged", "v0.1.0,v0.2.0"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^releasable=false$/m);
+    assert.equal(result.stdout.includes("dry_run="), false, "there is no publish to describe");
+    assert.match(result.stderr, /not touching it/);
+  });
+
+  it("rejects the flag on its own, because a dry run describes a publish", () => {
+    const { path } = scratch(CHANGELOG);
+    const result = run(["--changelog", path, "--dry-run"]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /--dry-run describes a publish; pass --publish as well/);
   });
 });

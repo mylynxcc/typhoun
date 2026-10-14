@@ -199,14 +199,17 @@ const { context } = runSource('print(1 + 1)');
 ## Testing
 
 ```bash
-npm test            # node --test  (654 tests)
+npm test            # node --test  (662 tests)
 npm run test:verbose
 npm run bench       # tree-walker vs bytecode VM, measured
 ```
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs exactly that suite —
 plain `npm test` — on every push and pull request, across Node **20, 22 and 24**;
-the badge at the top of this file reports the latest result on `main`. There is
+the badge at the top of this file reports the latest result on `main`. A second
+job walks the release publishing path in dry-run mode — deriving the tag,
+slicing the notes, and printing the tag and release it would create — so that
+path is exercised on every push rather than only when a version ships. There is
 deliberately no install step and no dependency cache: Typhoun has no
 dependencies and commits no lock file, so `npm ci` would fail and
 `actions/setup-node`'s `cache: npm` errors without one.

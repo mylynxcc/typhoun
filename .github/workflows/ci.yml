@@ -3,7 +3,7 @@
 # `npm test` is the project's contract: it runs the lexer, parser, resolver,
 # both engines, the bytecode invariants, the formatter, the linter, the module
 # loader and the CLI — including a spawned `bin/typhoun.js` — as one suite of
-# 636 tests. It
+# 662 tests. It
 # needs nothing else, because Typhoun has no runtime dependencies and no build
 # step.
 #
@@ -48,3 +48,118 @@ jobs:
 
       - name: npm test
         run: npm test
+
+  release-dry-run:
+    name: release dry run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # The publish path — derive the tag, slice the notes, create the tag, then
+      # the release — previously ran only when a release was actually cut, which
+      # is to say almost never, so a mistake in it was found by the release it
+      # broke. It is walked here on every push instead, one flag short of the
+      # real thing.
+      #
+      # The credentials are emptied on purpose: a dry run must be safe anywhere,
+      # and the live transport refuses to send without a token, so a run that
+      # succeeds without one has proved it sent nothing.
+      - name: Walk the publishing path without publishing
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: |
+          set -euo pipefail
+          next="$RUNNER_TEMP/next-changelog.md"
+          notes="$RUNNER_TEMP/notes.md"
+          out="$RUNNER_TEMP/dry-run.out"
+          log="$RUNNER_TEMP/dry-run.log"
+
+          # The edit a release starts with: `Unreleased` becomes a version that
+          # is not tagged yet.
+          sed 's/^## \[Unreleased\]/## [9.9.9] — 2026-01-01/' CHANGELOG.md > "$next"
+
+          node tools/release/plan-release.js \
+            --changelog "$next" \
+            --tagged v0.1.0 \
+            --notes-out "$notes" \
+            --repo "$GITHUB_REPOSITORY" \
+            --sha "$GITHUB_SHA" \
+            --publish --dry-run > "$out" 2> "$log"
+
+          cat "$out" "$log"
+
+          # The plan named the tag and walked the create path.
+          grep -qx "releasable=true" "$out"
+          grep -qx "tag=v9.9.9" "$out"
+          grep -qx "dry_run=true" "$out"
+          grep -qx "published=false" "$out"
+
+          # …making exactly these requests, in this order: look up what exists,
+          # create the tag, then create the release that points at it.
+          grep -oE '(GET|POST) /repos/[^ ]+' "$log" > "$RUNNER_TEMP/requests.txt"
+          printf '%s\n' \
+            "GET /repos/$GITHUB_REPOSITORY/releases/tags/v9.9.9" \
+            "GET /repos/$GITHUB_REPOSITORY/git/ref/refs/tags/v9.9.9" \
+            "POST /repos/$GITHUB_REPOSITORY/git/refs" \
+            "POST /repos/$GITHUB_REPOSITORY/releases" \
+            > "$RUNNER_TEMP/expected-requests.txt"
+          diff "$RUNNER_TEMP/requests.txt" "$RUNNER_TEMP/expected-requests.txt"
+
+          # With bodies that name the tag, at the commit being released.
+          grep -q '"ref": "refs/tags/v9.9.9"' "$log"
+          grep -q '"sha": "'"$GITHUB_SHA"'"' "$log"
+          grep -q '"tag_name": "v9.9.9"' "$log"
+
+          # The notes are that section verbatim, not a summary of it: the body
+          # published is exactly what a maintainer wrote under the version. Both
+          # sides lose the blank lines and the `---` that separate one section
+          # from the next — at both ends, which is how the planner trims them.
+          trim() {
+            awk '{ line[NR] = $0 } END {
+                   first = 1; last = NR
+                   while (first <= last && line[first] ~ /^[[:space:]-]*$/) first++
+                   while (last >= first && line[last] ~ /^[[:space:]-]*$/) last--
+                   for (i = first; i <= last; i++) print line[i] }' "$1"
+          }
+          awk '/^## \[Unreleased\]/ { found = 1; next } found && /^## \[/ { exit } found { print }' \
+            CHANGELOG.md > "$RUNNER_TEMP/section.md"
+          diff <(trim "$RUNNER_TEMP/section.md") <(trim "$notes")
+
+          # …and the payload carries those same notes, byte for byte.
+          planned=$(grep -o '"body": [0-9]* characters' "$log" | grep -o '[0-9]*')
+          written=$(node -e 'process.stdout.write(String(require("node:fs").readFileSync(process.argv[1], "utf8").trim().length))' "$notes")
+          echo "notes in the payload: $planned characters, notes written: $written"
+          test "$planned" = "$written"
+
+          # Nothing was created: the dry run stopped short of the API.
+          test -z "$(git ls-remote --tags origin v9.9.9)"
+
+      # And the gate that makes running this on every push safe: once the
+      # derived tag exists, the publish path stops before it touches anything.
+      - name: Stop at an already-tagged version
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/retry.out"
+          log="$RUNNER_TEMP/retry.log"
+          tag=$(node tools/release/plan-release.js --tagged "" | sed -n 's/^tag=//p')
+          test -n "$tag"
+
+          node tools/release/plan-release.js \
+            --tagged "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --sha "$GITHUB_SHA" \
+            --publish --dry-run > "$out" 2> "$log"
+
+          cat "$out" "$log"
+          grep -qx "releasable=false" "$out"
+          test "$(grep -c '^dry_run=' "$out" || true)" = "0"
+          grep -q "not touching it" "$log"

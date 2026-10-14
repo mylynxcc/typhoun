@@ -4,8 +4,16 @@
  *
  * Usage:
  *   node tools/release/plan-release.js [--changelog PATH] [--notes-out PATH]
- *                                      [--tagged a,b,c] [--publish]
+ *                                      [--tagged a,b,c] [--publish] [--dry-run]
  *                                      [--repo OWNER/NAME] [--sha COMMIT]
+ *
+ * `--dry-run` (which needs `--publish`) walks the entire publish path — the
+ * idempotency checks, the tag, the release built from the notes — through a
+ * transport that sends nothing and answers as if nothing had been published
+ * yet. It needs no token and no network, prints the requests a real run would
+ * make, and reports `published=false`. That is what makes the branch which
+ * actually publishes testable: it used to run once per version, so a mistake in
+ * it was found by the release it broke.
  *
  * The CHANGELOG is the source of truth for this project in two ways: it says
  * *which* version is next — the first section after `Unreleased` — and its body
@@ -112,12 +120,18 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--publish") options.publish = true;
+    else if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--changelog") options.changelog = argv[++i];
     else if (arg === "--notes-out") options.notesOut = argv[++i];
     else if (arg === "--tagged") options.tagged = argv[++i];
     else if (arg === "--repo") options.repo = argv[++i];
     else if (arg === "--sha") options.sha = argv[++i];
     else if (arg.startsWith("--")) throw new Error(`unknown option '${arg}'`);
+  }
+  // Failing loudly beats a flag that silently does nothing: a dry run only means
+  // something in the context of the publish it is describing.
+  if (options.dryRun && !options.publish) {
+    throw new Error("--dry-run describes a publish; pass --publish as well");
   }
   return options;
 }
@@ -139,7 +153,12 @@ function existingTags(options) {
   }
 }
 
-async function api(method, path, body) {
+/**
+ * The real transport. Every write goes through here, and it refuses to run
+ * without a token, so a publish cannot happen by accident in a context that was
+ * never meant to publish.
+ */
+async function liveTransport(method, path, body) {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   if (!token) throw new Error("--publish needs GITHUB_TOKEN or GH_TOKEN");
   const response = await fetch(`https://api.github.com${path}`, {
@@ -157,35 +176,53 @@ async function api(method, path, body) {
   return { status: response.status, payload };
 }
 
-async function publish({ tag, repo, sha, notes }) {
+/**
+ * A dry-run transport: records what a real run would send, sends nothing, and
+ * answers as if nothing had been published yet — which is the state a run only
+ * reaches when the version really is new, and therefore the path worth walking.
+ */
+function recordingTransport(requests) {
+  return async (method, path, body) => {
+    requests.push({ method, path, body });
+    return method === "GET" ? { status: 404, payload: {} } : { status: 201, payload: {} };
+  };
+}
+
+/**
+ * Create the tag and the release, reusing or skipping whatever already exists.
+ *
+ * The transport is a parameter so the conditional branches can be tested
+ * without a repository: the interesting behaviour is "check, then create only
+ * what is missing", not the HTTP call itself.
+ */
+export async function publishRelease({ tag, repo, sha, notes, send, event = note }) {
   if (!repo) throw new Error("--publish needs --repo (or GITHUB_REPOSITORY)");
   if (!sha) throw new Error("--publish needs --sha (or GITHUB_SHA)");
 
-  const existing = await api("GET", `/repos/${repo}/releases/tags/${tag}`);
+  const existing = await send("GET", `/repos/${repo}/releases/tags/${tag}`);
   if (existing.status === 200) {
-    note(`release ${tag} already exists — leaving it alone`);
-    process.stdout.write(`published=false\nrelease_url=${existing.payload.html_url}\n`);
-    return;
+    event(`release ${tag} already exists — leaving it alone`);
+    return { releaseCreated: false, releaseUrl: existing.payload.html_url ?? null };
   }
   if (existing.status !== 404) {
     throw new Error(`cannot check for an existing release: HTTP ${existing.status}`);
   }
 
   const tagRef = `refs/tags/${tag}`;
-  const tagLookup = await api("GET", `/repos/${repo}/git/ref/${tagRef}`);
+  const tagLookup = await send("GET", `/repos/${repo}/git/ref/${tagRef}`);
   if (tagLookup.status === 404) {
-    const created = await api("POST", `/repos/${repo}/git/refs`, { ref: tagRef, sha });
+    const created = await send("POST", `/repos/${repo}/git/refs`, { ref: tagRef, sha });
     if (created.status !== 201) {
       throw new Error(`cannot create ${tagRef}: HTTP ${created.status} ${created.payload.message ?? ""}`);
     }
-    note(`created tag ${tag} at ${sha.slice(0, 7)}`);
+    event(`created tag ${tag} at ${sha.slice(0, 7)}`);
   } else if (tagLookup.status === 200) {
-    note(`tag ${tag} already existed — reusing it`);
+    event(`tag ${tag} already existed — reusing it`);
   } else {
     throw new Error(`cannot check for an existing tag: HTTP ${tagLookup.status}`);
   }
 
-  const created = await api("POST", `/repos/${repo}/releases`, {
+  const created = await send("POST", `/repos/${repo}/releases`, {
     tag_name: tag,
     name: `Typhoun ${tag}`,
     body: notes,
@@ -195,8 +232,17 @@ async function publish({ tag, repo, sha, notes }) {
   if (created.status !== 201) {
     throw new Error(`cannot create the release: HTTP ${created.status} ${created.payload.message ?? ""}`);
   }
-  note(`published ${created.payload.html_url}`);
-  process.stdout.write(`published=true\nrelease_url=${created.payload.html_url}\n`);
+  const url = created.payload.html_url ?? null;
+  if (url) event(`published ${url}`);
+  return { releaseCreated: true, releaseUrl: url };
+}
+
+/** A request body as one line, with the notes measured instead of pasted. */
+function describeBody(body) {
+  const parts = Object.entries(body).map(([key, value]) =>
+    key === "body" ? `"body": ${value.length} characters of notes` : `${JSON.stringify(key)}: ${JSON.stringify(value)}`,
+  );
+  return `{ ${parts.join(", ")} }`;
 }
 
 async function main() {
@@ -235,12 +281,31 @@ async function main() {
     note("--publish asked for, but the tag exists; not touching it");
     return;
   }
-  await publish({
+
+  const requests = [];
+  const report = await publishRelease({
     tag,
     repo: options.repo ?? process.env.GITHUB_REPOSITORY,
     sha: options.sha ?? process.env.GITHUB_SHA ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
     notes,
+    send: options.dryRun ? recordingTransport(requests) : liveTransport,
+    // A dry run says nothing about what happened; it reports what would happen
+    // below, from the requests themselves.
+    event: options.dryRun ? () => {} : note,
   });
+
+  if (options.dryRun) {
+    note(`dry run — nothing was sent; a real publish would make ${requests.length} request(s):`);
+    for (const request of requests) {
+      note(`  ${request.method} ${request.path}`);
+      if (request.body) note(`      ${describeBody(request.body)}`);
+    }
+    note("  (responses were simulated: a real run reuses whatever the repository already has)");
+    process.stdout.write(`dry_run=true\npublished=false\nrelease_url=\nplanned_requests=${requests.length}\n`);
+    return;
+  }
+
+  process.stdout.write(`dry_run=false\npublished=${report.releaseCreated}\nrelease_url=${report.releaseUrl ?? ""}\n`);
 }
 
 // Only run when executed, so tests can import the parsing functions.

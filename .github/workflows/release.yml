@@ -10,6 +10,12 @@
 # public release can never be aimed at a commit whose tests have not finished —
 # and the suite is not run a second time to find that out.
 #
+# A manual run can ask for a dry run, which walks the whole publish path — the
+# idempotency checks, the tag, the release built from the notes — printing the
+# requests it would make instead of sending them. `ci.yml` walks exactly that on
+# every push, so the branch which actually publishes is exercised continuously
+# rather than discovered by the next release.
+#
 # Running it twice is safe: the plan step reports `releasable=false` when the
 # derived tag already exists, and the publish step refuses to overwrite an
 # existing tag or release.
@@ -23,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Derive the release but do not tag or publish it"
+        description: "Walk the publishing path, printing what it would do instead of doing it"
         type: boolean
         default: true
 
@@ -63,7 +69,14 @@ jobs:
         run: node tools/release/plan-release.js --notes-out "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Summarize the plan
+        env:
+          # `${{ inputs.dry_run }}` renders a typed boolean as the text
+          # "true"/"false", and is empty on a push, so the mode is decided by
+          # comparing that text rather than by the expression language's
+          # coercion of it against the boolean `true`.
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
         run: |
+          if [ "${DRY_RUN_INPUT}" = "true" ]; then mode="dry run — nothing will be published"; else mode="publish"; fi
           {
             echo "### Release plan"
             echo ""
@@ -73,15 +86,23 @@ jobs:
             echo "| releasable | \`${{ steps.plan.outputs.releasable }}\` |"
             echo "| notes | ${{ steps.plan.outputs.notes_chars }} characters |"
             echo "| commit | \`${{ github.event.workflow_run.head_sha || github.sha }}\` |"
+            echo "| mode | $mode |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Publish the tag and the release
-        # On a push-triggered run `inputs.dry_run` is empty, so this publishes;
-        # a manual run publishes only if asked not to dry-run.
-        if: steps.plan.outputs.releasable == 'true' && inputs.dry_run != true
+      - name: Publish the tag and the release (or walk it on a dry run)
+        # Runs whenever there is something to publish, including on a dry run:
+        # the dry run takes the same path with a transport that sends nothing,
+        # so what a release would do is visible before it does it.
+        if: steps.plan.outputs.releasable == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
         run: |
-          node tools/release/plan-release.js --publish \
+          # Anything that is not an explicit "true" publishes: a push carries no
+          # input at all, while a manual run defaults to a dry run, so the
+          # surprising case is the one that has to be asked for by name.
+          flag=""
+          if [ "${DRY_RUN_INPUT}" = "true" ]; then flag="--dry-run"; fi
+          node tools/release/plan-release.js --publish $flag \
             --notes-out "$RUNNER_TEMP/release-notes.md" \
             --sha "${{ github.event.workflow_run.head_sha || github.sha }}"

@@ -32,6 +32,25 @@ This project follows [Semantic Versioning](https://semver.org/).
   divergence — a store or a read above the block's own `let` — stays in the
   generated corpus, so it cannot come back unnoticed.
 
+**Release publishing is walked, not assumed** (see
+[CONTRIBUTING.md](CONTRIBUTING.md#releases))
+
+* `tools/release/plan-release.js --publish --dry-run` walks the whole publishing
+  path — the idempotency checks, the tag, the release built from the notes —
+  through a transport that sends nothing, prints the requests a real run would
+  make, and needs no token. A manual `Release` run asks for that by default, so
+  what a release would do is visible before it does it.
+* The publishing code now takes its transport as a parameter, which is what
+  makes the branches that matter testable without a repository: a tag that has
+  to be created, a tag that already exists and must not be moved, a release that
+  must be left alone, and an API refusal that must not be read as "nothing
+  there".
+* `.github/workflows/ci.yml` gains a job that runs the publishing path in
+  dry-run mode on every push, against a copy of the CHANGELOG whose `Unreleased`
+  heading is renamed to an untagged version, asserting that the notes it would
+  publish are that section verbatim and that nothing was created. That path used
+  to run once per version, so a mistake in it was found by the release it broke.
+
 ---
 
 ## [0.1.0] — 2026-10-14

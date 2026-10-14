@@ -144,6 +144,16 @@ reports the same decision locally without touching GitHub, and
 `node tools/release/plan-release.js --tagged v0.1.0` lets you check what a
 CHANGELOG edit *would* release before you merge it.
 
+Add `--publish --dry-run` and the same command walks the entire publishing path
+— the idempotency checks, the tag, the release built from the notes — through a
+transport that sends nothing and needs no token, printing the requests a real
+run would make. A manual `Release` run asks for that by default, and
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs it on every push
+against a copy of the CHANGELOG whose `Unreleased` heading is renamed to an
+untagged version, so the branch that actually tags and publishes is exercised
+continuously instead of being discovered by the next release. The one thing no
+dry run can cover is the HTTP write itself; that belongs to the release.
+
 ---
 
 ## Reporting bugs
