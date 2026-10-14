@@ -45,7 +45,9 @@ typhoun bench                          # both engines, same programs, measured
 
 ```js
 import { runFile } from "./src/main/index.js";
-runFile("examples/hello.typ", { engine: "vm" });
+
+runFile("examples/hello.typ");                        // the default: vm, compiled first
+runFile("examples/hello.typ", { engine: "tree" });    // the tree-walker instead
 ```
 
 ---
