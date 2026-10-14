@@ -1,0 +1,30 @@
+# Dependabot configuration.
+#
+# Only the `github-actions` ecosystem is listed. The workflow pins two actions
+# (`actions/checkout`, `actions/setup-node`) to major-version tags, and those
+# pins are the project's *only* dependency: Typhoun has no npm dependencies and
+# commits no lock file, so an `npm` entry would open nothing here and would add
+# a second thing to keep correct for no benefit.
+#
+# Updates arrive as pull requests, which is also what puts the `pull_request`
+# trigger in ci.yml to work: every bump is checked on Node 20, 22 and 24 before
+# anyone merges it.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    # Dependabot reads the workflow files under `.github/workflows`, not a
+    # manifest, so the directory to watch is the repository root.
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    # Distinguishes a dependency bump from a hand-written change in `git log`.
+    commit-message:
+      prefix: "deps"
+    # Both actions move in one pull request: one CI run, and a diff that says
+    # exactly what each pin jumped from and to.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
