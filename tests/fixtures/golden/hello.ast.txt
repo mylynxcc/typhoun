@@ -1,0 +1,19 @@
+Program
+  VarDecl const name
+    StringLit "Typhoun"
+  ExprStmt
+    Call
+      Identifier print
+      Binary +
+        Binary +
+          StringLit "Hello, "
+          Identifier name
+        StringLit "!"
+  ExprStmt
+    Call
+      Identifier print
+      Binary +
+        NumberLit 1
+        Binary *
+          NumberLit 2
+          NumberLit 3

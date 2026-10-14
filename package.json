@@ -1,0 +1,46 @@
+{
+  "name": "typhoun",
+  "version": "0.1.0",
+  "description": "Typhoun — Write boldly. Build anything. A dynamically typed, expression-oriented programming language with its own lexer, parser, resolver, interpreter, runtime and CLI.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "typhoun": "./bin/typhoun.js"
+  },
+  "main": "./src/main/index.js",
+  "exports": {
+    ".": "./src/main/index.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "examples",
+    "VERSION",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "test:verbose": "node --test --test-reporter=spec",
+    "repl": "node bin/typhoun.js repl",
+    "bench": "node tools/development/benchmark.js",
+    "bench:vm": "node tools/development/benchmark.js --iterations 7 --warmups 2",
+    "hello": "node bin/typhoun.js run examples/hello.typ",
+    "check": "node bin/typhoun.js check examples/hello.typ"
+  },
+  "keywords": [
+    "typhoun",
+    "programming-language",
+    "interpreter",
+    "lexer",
+    "parser",
+    "compiler"
+  ],
+  "author": "Typhoun Project",
+  "private": true
+}

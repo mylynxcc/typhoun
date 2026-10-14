@@ -1,0 +1,7 @@
+error[TYP2004]: Expected an expression but found 'if'
+  --> <root>/tests/fixtures/errors/malformed_syntax.typ:2:1
+    |
+  2 | if x { print("hi") }
+    | ^^
+    |
+  = help: A value, variable, call or literal was expected here.

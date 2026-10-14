@@ -1,0 +1,133 @@
+(* =========================================================================
+   Typhoun 0.1 — Formal grammar (EBNF)
+   =========================================================================
+   Notation
+     =      definition
+     ,      concatenation
+     |      alternation
+     [ x ]  optional
+     { x }  repetition (zero or more)
+     "x"    literal terminal
+     ( )    grouping
+
+   Terminals
+     identifier  = ( Unicode letter | "_" )
+                   { Unicode letter | Unicode digit | "_" }
+     number      = digit { digit } [ "." digit { digit } ]
+                   [ ( "e" | "E" ) [ "+" | "-" ] digit { digit } ]
+     string      = '"' { character | escape } '"'
+     escape      = "\" ( "n" | "t" | "r" | "0" | "\" | '"' | "'"
+                        | "b" | "f" | "v"
+                        | "u" hexdigit hexdigit hexdigit hexdigit
+                        | "u{" hexdigit { hexdigit } "}" )
+
+   Whitespace and comments are insignificant between tokens.
+     line-comment  = "//" { any-character except newline }
+     block-comment = "/*" { any } "*/"          (* nestable *)
+   ========================================================================= *)
+
+(* ---------------------------------------------------------------- program *)
+
+program          = { statement } , EOF ;
+
+statement        = declaration
+                 | if-statement
+                 | while-statement
+                 | for-statement
+                 | try-statement
+                 | block
+                 | break-statement
+                 | continue-statement
+                 | return-statement
+                 | import-statement
+                 | expression-statement ;
+
+declaration      = variable-declaration | function-declaration ;
+
+variable-declaration    = ( "let" | "const" ) , identifier , "=" , expression ;
+function-declaration    = "fn" , identifier , parameter-list , block ;
+
+parameter-list   = "(" , [ identifier , { "," , identifier } ] , ")" ;
+
+block            = "{" , { statement } , "}" ;
+
+if-statement     = "if" , expression , block ,
+                   [ "else" , ( if-statement | block ) ] ;
+
+while-statement  = "while" , expression , block ;
+
+for-statement    = "for" , ( for-in-header | for-classic-header ) , block ;
+
+for-in-header    = identifier , "in" , expression ;
+for-classic-header
+                 = "(" , [ for-init ] , ";" , [ expression ] , ";" ,
+                   [ expression ] , ")" ;
+for-init         = variable-declaration | expression-statement ;
+
+try-statement    = "try" , block , "catch" , identifier , block ;
+
+break-statement    = "break" ;
+continue-statement = "continue" ;
+return-statement   = "return" , [ expression ] ;
+
+import-statement = "import" , string , [ "as" , identifier ] ;
+
+expression-statement = expression ;
+
+(* ------------------------------------------------------------ expressions *)
+
+expression       = assignment ;
+
+assignment       = logical-or ,
+                   [ ( "=" | "+=" | "-=" | "*=" | "/=" ) , assignment ] ;
+
+logical-or       = logical-and , { "or" , logical-and } ;
+logical-and      = equality , { "and" , equality } ;
+
+equality         = comparison , { ( "==" | "!=" ) , comparison } ;
+comparison       = additive , { ( "<" | "<=" | ">" | ">=" ) , additive } ;
+additive         = multiplicative , { ( "+" | "-" ) , multiplicative } ;
+multiplicative   = unary , { ( "*" | "/" | "%" ) , unary } ;
+
+unary            = ( "not" | "-" ) , unary | postfix ;
+
+postfix          = primary , { call-suffix | index-suffix | member-suffix } ;
+call-suffix      = "(" , [ expression , { "," , expression } ] , ")" ;
+index-suffix     = "[" , expression , "]" ;
+member-suffix    = "." , identifier ;          (* sugar for ["identifier"] *)
+
+primary          = number
+                 | string
+                 | "true"
+                 | "false"
+                 | "null"
+                 | identifier
+                 | "(" , expression , ")"
+                 | array-literal
+                 | map-literal
+                 | function-expression ;
+
+array-literal    = "[" , [ expression , { "," , expression } ] , "]" ;
+map-literal      = "{" , [ map-entry , { "," , map-entry } ] , "}" ;
+map-entry        = ( string | number ) , ":" , expression ;
+
+function-expression
+                 = "fn" , [ identifier ] , parameter-list , block ;
+
+(* ------------------------------------------------------------------ notes *)
+(*
+   1. `let`/`const` bindings are block scoped and must be initialized at their
+      point of declaration.
+   2. Semicolons are optional statement separators; they are accepted after
+      most statements but never required.
+   3. A leading `{` at statement position starts a block; a map literal is an
+      expression and therefore appears in expression position.
+   4. Precedence, lowest to highest:
+        assignment < or < and < equality < comparison < additive
+        < multiplicative < unary < postfix < primary
+      Assignment is right-associative; all other binary operators are
+      left-associative.
+   5. A `try` statement requires exactly one `catch` clause, and the error name
+      after `catch` is required — there is no `finally`, and no bare `catch`.
+      Use `catch _ { }` when the error is deliberately ignored.
+*)

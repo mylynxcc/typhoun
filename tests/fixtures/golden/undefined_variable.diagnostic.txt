@@ -1,0 +1,9 @@
+error[TYP3001]: Undefined variable 'username'
+  --> <root>/tests/fixtures/errors/undefined_variable.typ:3:7
+    |
+  3 | print(username)
+    |       ^^^^^^^^
+    |
+  = help: Declare 'username' before using it, or check for a typo.
+
+error: 1 diagnostic(s)

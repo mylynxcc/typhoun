@@ -1,0 +1,12 @@
+# Generated release artifacts
+dist/
+
+# Dependencies (the project has none by default, but npm may create these)
+node_modules/
+package-lock.json
+
+# Editor and OS noise
+.DS_Store
+*.log
+.idea/
+.vscode/

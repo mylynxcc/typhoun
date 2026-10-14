@@ -1,0 +1,21 @@
+   2:  1  CONST        "const"
+   2:  7  IDENTIFIER   "name" "name"
+   2: 12  EQUAL        "="
+   2: 14  STRING       "\"Typhoun\"" "Typhoun"
+   3:  1  IDENTIFIER   "print" "print"
+   3:  6  LPAREN       "("
+   3:  7  STRING       "\"Hello, \"" "Hello, "
+   3: 17  PLUS         "+"
+   3: 19  IDENTIFIER   "name" "name"
+   3: 24  PLUS         "+"
+   3: 26  STRING       "\"!\"" "!"
+   3: 29  RPAREN       ")"
+   4:  1  IDENTIFIER   "print" "print"
+   4:  6  LPAREN       "("
+   4:  7  NUMBER       "1" 1
+   4:  9  PLUS         "+"
+   4: 11  NUMBER       "2" 2
+   4: 13  STAR         "*"
+   4: 15  NUMBER       "3" 3
+   4: 16  RPAREN       ")"
+   5:  1  EOF          ""

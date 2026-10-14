@@ -1,0 +1,7 @@
+error[TYP4002]: Division by zero
+  --> <root>/tests/fixtures/errors/division_by_zero.typ:3:7
+    |
+  3 | print(a / b)
+    |       ^
+    |
+  = help: Guard the divisor before dividing.
