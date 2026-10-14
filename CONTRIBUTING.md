@@ -109,6 +109,9 @@ tests, and document it.
 * Golden output changes must be regenerated deliberately with
   `node tools/development/update-goldens.js` and reviewed in the diff.
 * New behaviour needs a test that fails without the change.
+* CI runs the whole suite on every push and pull request — see
+  [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — so a change is not
+  ready until `npm test` is green on Node 20, 22 and 24.
 
 ---
 

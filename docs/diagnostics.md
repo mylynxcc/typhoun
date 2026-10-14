@@ -56,6 +56,7 @@ behind them.
 | `TYP2002` | `EXPECTED_TOKEN` | a required token is missing (e.g. `}`) |
 | `TYP2003` | `INVALID_ASSIGNMENT_TARGET` | `1 + 2 = 3` |
 | `TYP2004` | `EXPECTED_EXPRESSION` | an expression was required but not found |
+| `TYP2005` | `NESTING_TOO_DEEP` | source nests past the parser's recursion bound |
 
 ### Semantic — `TYP3xxx`
 

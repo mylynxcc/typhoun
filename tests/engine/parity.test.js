@@ -16,9 +16,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { ExecutionContext, runFile } from "../../src/main/index.js";
+import { ExecutionContext, runFile, runSource } from "../../src/main/index.js";
 import { Code } from "../../src/diagnostics/codes.js";
-import { fixture, runOnBothEngines } from "../helpers.js";
+import { fixture, firstDiagnostic, runOnBothEngines } from "../helpers.js";
 
 /** Assert both engines agree; returns the shared result. */
 function agree(source, options = {}) {
@@ -195,6 +195,19 @@ for x in items {
   push(items, x + 10)
 }
 print(len(items), seen)`,
+    "assignment to a shadowed binding after its declaration": `
+let x = 1
+{
+  let x = 2
+  x = 5
+  print(x)
+}
+print(x)`,
+    "a closure assigns to an outer binding declared later": `
+fn set() { later = 7 }
+let later = 0
+set()
+print(later)`,
     "empty program": "",
     "only a comment": "// nothing to do\n",
   };
@@ -239,6 +252,15 @@ describe("parity: failure modes", () => {
       'try { let i = 0\nwhile true { i += 1 } } catch err { print("swallowed") }',
     "a failure escaping a handler":
       'try { try { assert(false, "inner") } catch e { assert(false, "outer") } } catch err { print("handled", err.message) }\nassert(false, "after")',
+    // Assignment into the temporal dead zone must be rejected identically. It
+    // is not a runtime question the two engines may answer differently: the
+    // tree-walker resolves names dynamically and the compiler reserves slots,
+    // so only the resolver can give this one meaning.
+    "assigning before the declaration in the same block": '{\n  x = 1\n  let x = 2\n}',
+    "compound assignment before the declaration": '{\n  x += 1\n  let x = 2\n}',
+    "an assignment a later shadow would capture": "let x = 1\n{\n  x = 5\n  let x = 2\n}",
+    "source nested past the parser bound":
+      "print(" + "(".repeat(5000) + "1" + ")".repeat(5000) + ")",
   };
 
   for (const [name, source] of Object.entries(failures)) {
@@ -383,6 +405,53 @@ describe("parity: staged diagnostics", () => {
       assert.equal(shared.ok, false);
     });
   }
+});
+
+describe("parity: resource limits", () => {
+  // A program that never terminates is stopped by the step budget on both
+  // engines, and both raise the same `TYP6001`. How much *output* survived is
+  // deliberately not compared: the tree-walker counts an AST node per step
+  // while the VM counts a bytecode instruction, so the two stop at different
+  // points inside the runaway loop. Only the guard itself is the contract.
+  it("trips the step limit on both engines for a printing runaway loop", () => {
+    const source = 'let i = 0\nwhile true { i += 1\nprint(i) }';
+    const code = {};
+    for (const engine of ["tree", "vm"]) {
+      try {
+        runSource(source, "<parity>", {
+          engine,
+          limits: { maxSteps: 20_000 },
+          onOutput: () => {},
+          onInput: () => "",
+        });
+        code[engine] = "ran";
+      } catch (err) {
+        code[engine] = firstDiagnostic(err).code;
+      }
+    }
+    assert.equal(code.tree, Code.STEP_LIMIT);
+    assert.equal(code.vm, Code.STEP_LIMIT);
+  });
+
+  it("trips the depth limit on both engines for unbounded recursion", () => {
+    const source = "fn f(n) { return f(n + 1) }\nf(0)";
+    const code = {};
+    for (const engine of ["tree", "vm"]) {
+      try {
+        runSource(source, "<parity>", {
+          engine,
+          limits: { maxCallDepth: 24 },
+          onOutput: () => {},
+          onInput: () => "",
+        });
+        code[engine] = "ran";
+      } catch (err) {
+        code[engine] = firstDiagnostic(err).code;
+      }
+    }
+    assert.equal(code.tree, Code.DEPTH_LIMIT);
+    assert.equal(code.vm, Code.DEPTH_LIMIT);
+  });
 });
 
 describe("parity: shipped programs", () => {

@@ -50,6 +50,10 @@ Indexing a number or string does not expose host prototypes: it raises
     file, overridable with `--root`).
 
   Escaping the root raises `TYP5002 MODULE_OUT_OF_BOUNDS`.
+* Containment is checked against **real** paths, not the spelling of the import:
+  both the module and the root are resolved with the host's `realpath` before
+  they are compared, so a symlink placed inside the root cannot point a load at
+  a file outside it. A link whose target stays inside the root is still fine.
 * Programs can never *write* files; no built-in opens a path for writing.
 * A program cannot import a module that the entry program could not already
   reach; module discovery and semantic validation happen before execution.
@@ -110,7 +114,22 @@ detail:
 guarded runaway loop and a guarded runaway recursion still stop with `TYP6001`
 and `TYP6002`, and that the handler prints nothing when they do.
 
-### 2.8 Errors never leak host internals
+### 2.8 Deep nesting is stopped in the parser
+
+Every stage does its work recursively, so deeply nested source is a way to
+attack the engine rather than the program: a few thousand parentheses are
+enough to overflow the JavaScript stack. The parser bounds this itself. It
+counts its own descent and, once the tree (or the recursion that builds it)
+passes `MAX_NESTING_DEPTH` levels, records `TYP2005 NESTING_TOO_DEEP` and stops
+instead of recursing to a host `RangeError`. The same pass measures the finished
+tree with an explicit stack, so a chain the parser built in a *loop* —
+`1 + 1 + … + 1` — is caught too. Because the check runs before execution, both
+engines share it and neither can be reached with a tree it cannot walk.
+
+This is a parse-time syntax bound, not a runtime resource limit; it is not
+configurable and does not appear in the limit table above.
+
+### 2.9 Errors never leak host internals
 
 Runtime failures are converted to structured diagnostics. Unexpected host
 errors are reported as an internal error and do not expose program-visible
@@ -133,8 +152,10 @@ but never environment variables or secret values.
   capabilities. An opt-in capability model (filesystem, network, timers) is
   roadmap work for a later release.
 * **`random()` is not cryptographic.**
-* **Module root is a policy, not a jail.** Symlinked directories inside the
-  root are followed by the host; do not place secrets inside the module root.
+* **Module root is a policy, not a jail.** The loader refuses symlinks that
+  lead outside the root, but the root is still a policy boundary rather than an
+  OS sandbox: do not place secrets where a program can name them, and do not
+  rely on this in place of the OS-level isolation above.
 
 ---
 

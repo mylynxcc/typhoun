@@ -1,5 +1,7 @@
 # Typhoun
 
+[![CI](https://github.com/mylynxcc/typhoun/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mylynxcc/typhoun/actions/workflows/ci.yml)
+
 > **Write boldly. Build anything.**
 
 Typhoun is a dynamically typed, expression-oriented programming language with
@@ -197,10 +199,17 @@ const { context } = runSource('print(1 + 1)');
 ## Testing
 
 ```bash
-npm test            # node --test  (613 tests)
+npm test            # node --test  (636 tests)
 npm run test:verbose
 npm run bench       # tree-walker vs bytecode VM, measured
 ```
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs exactly that suite —
+plain `npm test` — on every push and pull request, across Node **20, 22 and 24**;
+the badge at the top of this file reports the latest result on `main`. There is
+deliberately no install step and no dependency cache: Typhoun has no
+dependencies and commits no lock file, so `npm ci` would fail and
+`actions/setup-node`'s `cache: npm` errors without one.
 
 Coverage by stage:
 

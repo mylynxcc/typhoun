@@ -19,6 +19,7 @@ function attempt(source, options = {}) {
   const chunks = [];
   try {
     runSource(source, "<sandbox>", {
+      engine: options.engine,
       limits: options.limits,
       context: new ExecutionContext({
         limits: options.limits,
@@ -220,6 +221,35 @@ describe("security: a handler cannot swallow the sandbox", () => {
       output,
       '[\"code\", \"message\", \"phase\", \"location\", \"help\", \"stack\"] [\"file\", \"line\", \"column\"] 0\n',
     );
+  });
+});
+
+describe("security: deep nesting is a diagnostic, never a host crash", () => {
+  // Every stage walks the source recursively, so nesting is a way to attack
+  // the *engine* rather than the program. Without a bound a small file can
+  // overflow the JavaScript stack and surface as a raw `RangeError`; the tests
+  // below pin down that the bound exists and holds on both execution engines.
+  const shapes = {
+    "nested parentheses": "print(" + "(".repeat(4000) + "1" + ")".repeat(4000) + ")",
+    "nested arrays": "print(" + "[".repeat(4000) + "1" + "]".repeat(4000) + ")",
+    "nested blocks": "{".repeat(4000) + "}".repeat(4000),
+    "a deep unary chain": "print(" + "-".repeat(4000) + "1)",
+    "a deep binary chain": "print(1" + " + 1".repeat(4000) + ")",
+  };
+
+  for (const [name, source] of Object.entries(shapes)) {
+    it(`reports ${name} on both engines without crashing`, () => {
+      for (const engine of ["tree", "vm"]) {
+        const { error } = attempt(source, { engine });
+        assert.equal(firstDiagnostic(error).code, Code.NESTING_TOO_DEEP, `${name} on ${engine}`);
+      }
+    });
+  }
+
+  it("still runs ordinary deeply-but-legally nested code", () => {
+    const { error, output } = attempt("print(" + "(".repeat(40) + "7" + ")".repeat(40) + ")");
+    assert.equal(error, null);
+    assert.equal(output, "7\n");
   });
 });
 

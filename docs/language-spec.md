@@ -111,7 +111,10 @@ const author = "Typhoun Project"   // immutable binding
 * Every binding must be initialized at its declaration.
 * Both `let` and `const` are **block scoped**.
 * Reading a name before its declaration in the same block is an error
-  (temporal dead zone), reported by the semantic analyzer.
+  (temporal dead zone), reported by the semantic analyzer. Assigning to that
+  name counts too — including compound assignment, which reads it first — so
+  `x = 1` above `let x = 2` is rejected rather than meaning one thing in the
+  tree-walker and another in the bytecode engine.
 * Assigning to a `const` (or to a function name) is a semantic error.
 
 ```typ

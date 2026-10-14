@@ -29,7 +29,8 @@ v0.1 unless it is also in the v0.1 column of the status table.**
 | Module loader (rooted, cached, cycle-safe) | ✅ implemented |
 | Resource limits | ✅ implemented |
 | Error handling (`try`/`catch`, error values, catchability rule) | ✅ implemented |
-| Automated test suite (613 tests) | ✅ implemented |
+| Automated test suite (636 tests) | ✅ implemented |
+| Continuous integration — `npm test` on Node 20/22/24, every push and PR | ✅ implemented |
 | Static typing | ❌ not implemented |
 
 | Package manager, LSP, editor integration | ❌ not implemented |

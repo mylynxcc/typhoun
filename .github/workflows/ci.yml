@@ -2,7 +2,8 @@
 #
 # `npm test` is the project's contract: it runs the lexer, parser, resolver,
 # both engines, the bytecode invariants, the formatter, the linter, the module
-# loader and the CLI — including a spawned `bin/typhoun.js` — as 613 tests. It
+# loader and the CLI — including a spawned `bin/typhoun.js` — as one suite of
+# 636 tests. It
 # needs nothing else, because Typhoun has no runtime dependencies and no build
 # step.
 #

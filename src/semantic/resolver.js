@@ -433,6 +433,23 @@ export class Resolver {
         return;
       }
       const { binding } = found;
+      // A target that resolves to a binding still in its temporal dead zone is
+      // rejected here, in the resolver, so both execution engines agree. The
+      // two runtimes otherwise differ: the tree-walker looks the name up
+      // dynamically and cannot see a `let` that has not run yet, while the
+      // compiler allocates its slot up front. `+=` and friends read the target
+      // as well as writing it, so this is the same "used before declaration"
+      // error as a plain read. As with reads, references inside a function
+      // body may legally be resolved later, when the closure is called.
+      if (!binding.initialized && this.functionDepth === 0) {
+        this.report(
+          Code.USED_BEFORE_DECLARATION,
+          `'${target.name}' is used before its declaration`,
+          target,
+          `Move the declaration of '${target.name}' above this line.`,
+        );
+        return;
+      }
       if (binding.kind === BINDING_KIND.CONST) {
         this.report(
           Code.CONST_REASSIGNMENT,

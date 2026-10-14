@@ -12,7 +12,7 @@
  * lexed, parsed and semantically resolved first, so `check` is meaningful and
  * the interpreter never starts from a broken graph.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Lexer } from "../lexer/lexer.js";
 import { Parser } from "../parser/parser.js";
@@ -111,6 +111,35 @@ export class ModuleLoader {
         `Cannot find module '${specPath}'`,
         loc,
         `Looked for '${abs}'.`,
+      );
+    }
+    // The check above is purely lexical, so a symlink placed inside the root
+    // would pass it while its target lives outside. Resolve both the module
+    // and the root to their real paths and re-check containment, which closes
+    // that escape. `realpathSync` also normalises `/tmp` -> `/private/tmp` on
+    // macOS, so the two sides are always compared on the same footing.
+    let realAbs;
+    let realRoot;
+    try {
+      realAbs = realpathSync(abs);
+      realRoot = realpathSync(this.rootDir);
+    } catch (err) {
+      // A symlink loop, or the file vanishing between the check and here,
+      // is a load failure like any other — not a host exception.
+      throw this.fault(
+        Code.MODULE_NOT_FOUND,
+        `Cannot resolve module '${specPath}' (${err.code ?? err.message})`,
+        loc,
+        `Looked for '${abs}'.`,
+      );
+    }
+    const realRel = relative(realRoot, realAbs);
+    if (realRel === "" || realRel.startsWith("..") || isAbsolute(realRel)) {
+      throw this.fault(
+        Code.MODULE_OUT_OF_BOUNDS,
+        `Import '${specPath}' escapes the project root`,
+        loc,
+        `Only modules inside '${this.rootDir}' may be imported.`,
       );
     }
     return abs;

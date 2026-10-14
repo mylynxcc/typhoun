@@ -44,6 +44,29 @@ describe("semantic: name resolution", () => {
     assert.ok(has("let a = b\nlet b = 1").has(Code.USED_BEFORE_DECLARATION));
   });
 
+  // Both execution engines must agree on what an assignment means. The
+  // tree-walker looks a name up dynamically, so it cannot see a `let` that has
+  // not run yet; the bytecode compiler reserves the slot up front. The
+  // resolver settles the question before either of them runs, which is the
+  // only way `x = 1` before `let x` can have one meaning instead of two.
+  it("rejects assigning to a variable in its temporal dead zone", () => {
+    assert.ok(has("{\n  x = 1\n  let x = 2\n}").has(Code.USED_BEFORE_DECLARATION));
+  });
+
+  it("rejects compound assignment to a variable in its temporal dead zone", () => {
+    assert.ok(has("{\n  x += 1\n  let x = 2\n}").has(Code.USED_BEFORE_DECLARATION));
+  });
+
+  it("rejects an assignment aimed at a binding a later declaration shadows", () => {
+    assert.ok(
+      has("let x = 1\n{\n  x = 5\n  let x = 2\n  print(x)\n}").has(Code.USED_BEFORE_DECLARATION),
+    );
+  });
+
+  it("still lets a closure assign to a binding declared later in its block", () => {
+    assert.equal(check("fn set() { later = 1 }\nlet later = 0\nset()\nprint(later)").length, 0);
+  });
+
   it("records binding information on identifiers", () => {
     const bag = check("let a = 1\na = 2");
     assert.equal(bag.length, 0);

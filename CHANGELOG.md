@@ -7,82 +7,11 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-
-**Flow-sensitive dead stores (lint rule `dead-store`, `TYP7013`)**
-
-* The linter can now see a value that nobody reads. `dead-store` reports a store
-  that is overwritten before anything reads it, or that is still unread when the
-  name goes out of scope — `let total = 0` / `total = 10` / `print(total)`,
-  where the `0` was never used.
-* This is the only rule that reasons about the *order* of events, so the walk
-  now carries a small forward dataflow state: the writes whose value could still
-  be read. A store replaces the previous ones where it certainly runs (its own
-  function, outside any loop); a read settles whatever is live; each arm of a
-  branch is walked from the state the test left behind and the join keeps what
-  either arm kept.
-* Soundness is by exclusion, not by hope: a binding read or written inside a
-  nested function or a loop body is left out of the analysis, because source
-  order does not describe when those reads happen. A binding nothing reads stays
-  `unused-variable`'s finding, so no line is reported twice.
-* `examples/`, `benchmarks/` and the runnable fixtures stay clean, and
-  `tests/lint/dead-store-fuzz.test.js` enforces the guarantee rather than
-  asserting it: for every generated program it lints, each report is falsified
-  by replacing the stored value with a canary and re-running the program. No
-  canary ever changed the output — 19,495 reports over 32,000 seeded programs
-  during development, and a bounded replay of the same corpora in the suite.
-  `npm test` passes 613/613.
-
-**Project settings — `typhoun.json`** (see [tooling.md](tooling.md#project-settings--typhounjson))
-
-* `typhoun fmt` and `typhoun lint` read their defaults from the nearest
-  `typhoun.json` at or above the working directory, so a repository keeps its
-  formatting width, indentation unit, lint rule selection, strictness and
-  warning budget next to its sources instead of repeating flags in every
-  invocation. A command-line flag still wins over the file, and `--config
-  <path>` reads a named file instead of searching.
-* `fmt` gains `--indent <n>` (spaces per level, 0–8) and `lint` gains
-  `--no-strict`, which turns off a `"strict": true` setting from the file.
-* The file is validated strictly: an unknown section or key, a value of the
-  wrong type or range, a nonexistent lint rule, invalid JSON or an unreadable
-  file is a usage error (exit code 2) that names the offender and changes
-  nothing. Commands with nothing to configure never read it.
-* Both commands print `settings from <file>` when a settings file was used, and
-  their `--json` reports carry a `settings` object naming the source and the
-  values in force. Covered by
-  `tests/integration/project-config.test.js` (28 cases).
-
-### Changed
-
-**Bytecode VM — dispatch rework** (see [bytecode.md](bytecode.md) §7)
-
-* The dispatch loop no longer loses the optimising tier to its own cold code.
-  V8 compiles a site with no type feedback into an eager deoptimisation, and in
-  one giant `switch` most sites are cold when the loop is optimised: the four
-  conditional jumps read their operand inside the arm the branch does not take,
-  so a `while` loop's exit — taken once, at the end — deoptimised the whole
-  dispatch loop on its way out. The operand and both jump targets are now
-  computed before the branch is taken.
-* The rarely executed half of the instruction set moved out of `dispatchLoop`
-  into a new `slowOp` method. The opcodes kept inline are the ones an opcode
-  histogram showed dominate real programs (`GET_LOCAL`, `CONST`, `GET_GLOBAL`,
-  `POP`, `ADD`, `SET_GLOBAL`, `JUMP`, `JUMP_IF_FALSE_POP`, `MOD`, `CALL`,
-  `DEF_LOCAL`, `RETURN`, `LT`, `SET_LOCAL`); cold opcodes are under 8% of the
-  instructions in any program measured, and their cold inline caches can now
-  only deoptimise `slowOp`, not the loop that called them.
-* `proto.constants`, `frame.base` and `closure.globals` are now held in locals
-  in the hot loop instead of being read per operand.
-* Measured, same command and machine as the table in the docs: total VM wall
-  clock over the benchmark suite **925.5 ms → 760.6 ms (1.22x)**, per program
-  1.09x (`closures`) to 1.37x (`loop`), median tree-vs-VM speedup 0.29x → 0.37x.
-  Output parity unchanged (7/7 programs identical) and `npm test` passes
-  (568/568 at the time of the measurement).
-
-The VM remains slower than the tree-walker; `tree` is still the default engine.
+Nothing yet.
 
 ---
 
-## [0.1.0] — 2026-10-13
+## [0.1.0] — 2026-10-14
 
 The first working release. Typhoun is a complete, self-contained language
 implementation: source files are tokenized, parsed, semantically analyzed and
@@ -156,7 +85,7 @@ executed by its own engine.
   caret rendering with source excerpts, help text, JSON output.
 * Stage I Tooling — `typhoun fmt`, a canonical, idempotent, meaning-preserving
   formatter that keeps comments and blank lines, and `typhoun lint`, a
-  twelve-rule analyzer (`TYP7xxx`) for dead, redundant and misleading code.
+  thirteen-rule analyzer (`TYP7xxx`) for dead, redundant and misleading code.
   Both are documented in [docs/tooling.md](docs/tooling.md).
 
 **CLI**
@@ -187,7 +116,7 @@ executed by its own engine.
 
 **Tests**
 
-* 568 automated tests across lexer, parser, semantic, runtime, error handling,
+* 636 automated tests across lexer, parser, semantic, runtime, error handling,
   bytecode compiler, VM, engine parity, bytecode invariants, formatter, linter,
   benchmark harness, end-to-end, CLI, modules, security and golden suites.
   All passing.
@@ -195,6 +124,114 @@ executed by its own engine.
   program output) and refuses to rewrite a file it cannot parse; the linter
   carries a firing and a silent case per rule, and both tools are exercised
   through the real CLI.
+
+**Flow-sensitive dead stores (lint rule `dead-store`, `TYP7013`)**
+
+* The linter can now see a value that nobody reads. `dead-store` reports a store
+  that is overwritten before anything reads it, or that is still unread when the
+  name goes out of scope — `let total = 0` / `total = 10` / `print(total)`,
+  where the `0` was never used.
+* This is the only rule that reasons about the *order* of events, so the walk
+  now carries a small forward dataflow state: the writes whose value could still
+  be read. A store replaces the previous ones where it certainly runs (its own
+  function, outside any loop); a read settles whatever is live; each arm of a
+  branch is walked from the state the test left behind and the join keeps what
+  either arm kept.
+* Soundness is by exclusion, not by hope: a binding read or written inside a
+  nested function or a loop body is left out of the analysis, because source
+  order does not describe when those reads happen. A binding nothing reads stays
+  `unused-variable`'s finding, so no line is reported twice.
+* `examples/`, `benchmarks/` and the runnable fixtures stay clean, and
+  `tests/lint/dead-store-fuzz.test.js` enforces the guarantee rather than
+  asserting it: for every generated program it lints, each report is falsified
+  by replacing the stored value with a canary and re-running the program. No
+  canary ever changed the output — 19,495 reports over 32,000 seeded programs
+  during development, and a bounded replay of the same corpora in the suite
+  (613/613 at the time that work landed).
+
+**Project settings — `typhoun.json`** (see [tooling.md](tooling.md#project-settings--typhounjson))
+
+* `typhoun fmt` and `typhoun lint` read their defaults from the nearest
+  `typhoun.json` at or above the working directory, so a repository keeps its
+  formatting width, indentation unit, lint rule selection, strictness and
+  warning budget next to its sources instead of repeating flags in every
+  invocation. A command-line flag still wins over the file, and `--config
+  <path>` reads a named file instead of searching.
+* `fmt` gains `--indent <n>` (spaces per level, 0–8) and `lint` gains
+  `--no-strict`, which turns off a `"strict": true` setting from the file.
+* The file is validated strictly: an unknown section or key, a value of the
+  wrong type or range, a nonexistent lint rule, invalid JSON or an unreadable
+  file is a usage error (exit code 2) that names the offender and changes
+  nothing. Commands with nothing to configure never read it.
+* Both commands print `settings from <file>` when a settings file was used, and
+  their `--json` reports carry a `settings` object naming the source and the
+  values in force. Covered by
+  `tests/integration/project-config.test.js` (28 cases).
+
+### Fixed
+
+**The two engines now agree on assignment in the temporal dead zone**
+
+* A name assigned before its `let`/`const` declaration in the same block used to
+  mean different things in the two engines: the tree-walker looked the name up
+  dynamically and could not see a binding that had not run yet, while the
+  bytecode compiler had already reserved the slot. `x = 1` above `let x = 2`
+  therefore wrote to an outer `x` in one engine and to the block's `x` in the
+  other, and a compound `x += 1` in the same position failed in one and not the
+  other. The resolver now rejects the assignment where it already rejects the
+  read — same `TYP3008`, before either engine runs — so a program has one
+  meaning. Assignments inside a closure to a binding declared later in its
+  block are still allowed. `npm test` passes 636/636.
+* Found and confirmed by differential fuzzing the two engines against each
+  other over generated programs; the case is now pinned by tests in
+  `tests/semantic/resolver.test.js` and `tests/engine/parity.test.js`.
+
+**Deeply nested source is a diagnostic, not a host crash**
+
+* A few thousand nested parentheses, array literals, blocks or unary operators
+  overflowed the JavaScript stack and escaped as a raw `RangeError` in every
+  stage. The parser now bounds its own recursion and measures the finished tree
+  with an explicit stack (so a chain built in a loop cannot slip through),
+  reporting the new syntax code `TYP2005 NESTING_TOO_DEEP`. The bound runs
+  before execution and applies to both engines.
+
+**Import containment now follows symlinks**
+
+* Module containment was a purely lexical path check, so a symlink inside the
+  project root could point at a file outside it and have that file loaded and
+  executed. The loader now resolves the real path of both the module and the
+  root before comparing them; an escaping link is refused with the existing
+  `TYP5002 MODULE_OUT_OF_BOUNDS`.
+
+### Changed
+
+**Bytecode VM — dispatch rework** (see [bytecode.md](bytecode.md) §7)
+
+* The dispatch loop no longer loses the optimising tier to its own cold code.
+  V8 compiles a site with no type feedback into an eager deoptimisation, and in
+  one giant `switch` most sites are cold when the loop is optimised: the four
+  conditional jumps read their operand inside the arm the branch does not take,
+  so a `while` loop's exit — taken once, at the end — deoptimised the whole
+  dispatch loop on its way out. The operand and both jump targets are now
+  computed before the branch is taken.
+* The rarely executed half of the instruction set moved out of `dispatchLoop`
+  into a new `slowOp` method. The opcodes kept inline are the ones an opcode
+  histogram showed dominate real programs (`GET_LOCAL`, `CONST`, `GET_GLOBAL`,
+  `POP`, `ADD`, `SET_GLOBAL`, `JUMP`, `JUMP_IF_FALSE_POP`, `MOD`, `CALL`,
+  `DEF_LOCAL`, `RETURN`, `LT`, `SET_LOCAL`); cold opcodes are under 8% of the
+  instructions in any program measured, and their cold inline caches can now
+  only deoptimise `slowOp`, not the loop that called them.
+* `proto.constants`, `frame.base` and `closure.globals` are now held in locals
+  in the hot loop instead of being read per operand.
+* Measured, same command and machine as the table in the docs: total VM wall
+  clock over the benchmark suite **925.5 ms → 760.6 ms (1.22x)**, per program
+  1.09x (`closures`) to 1.37x (`loop`), median tree-vs-VM speedup 0.29x → 0.37x.
+  Output parity unchanged (7/7 programs identical) and `npm test` passes
+  (568/568 at the time of the measurement).
+
+The VM remains slower than the tree-walker; `tree` is still the default engine.
+
+---
 
 ### Known limitations
 
@@ -206,6 +243,6 @@ executed by its own engine.
   collector.
 * Some diagnostic codes are reserved for future use
   (`TYP3005`, `TYP4006`, `TYP4011`, `TYP5005`).
-* Neither tool takes a configuration file: `fmt` has no options beyond the line
-  width, and `lint` rules are selected on the command line. There is no
-  `--fix`, no per-line suppression and no editor integration yet.
+* There is no `--fix`, no per-line suppression and no editor integration yet;
+  `fmt` still offers only width and indentation, and `lint` rules are chosen on
+  the command line or in `typhoun.json`.

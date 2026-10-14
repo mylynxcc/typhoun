@@ -18,6 +18,25 @@ import { Code } from "../diagnostics/codes.js";
 /** Internal control-flow signal used for local parser recovery. */
 class ParseError extends Error {}
 
+/**
+ * Raised when the source nests deeper than the parser allows. Unlike a
+ * `ParseError` this is unrecoverable — there is no sensible place to resume —
+ * so `parse` stops instead of trying to synchronize.
+ */
+class NestingLimitError extends Error {}
+
+/**
+ * The deepest the parser will descend into a statement or an expression.
+ *
+ * Recursive descent spends host stack frames proportional to this, and the
+ * later stages (resolver, interpreter) walk the resulting tree the same way,
+ * so it bounds every stage at once. It is set far below the depth at which the
+ * JavaScript stack overflows (about a thousand levels of `((((…))))` on the
+ * default stack) and far above any nesting a person writes by hand. Reaching
+ * it is a diagnostic, never a host crash.
+ */
+export const MAX_NESTING_DEPTH = 256;
+
 // Binding powers, lowest to highest. Assignment is handled separately so it
 // can be right-associative and validated against assignable targets.
 const BINARY_PRECEDENCE = new Map([
@@ -74,6 +93,21 @@ export class Parser {
     this.tokens = tokens;
     this.current = 0;
     this.diagnostics = new DiagnosticBag();
+    /** Current depth of recursive-descent nesting; checked in `statement`,
+     *  `expression`, `assignment` and `unary` — the four methods that can
+     *  recurse into themselves without passing through another. */
+    this.depth = 0;
+  }
+
+  /** Record the "too deep" diagnostic and abandon the parse. */
+  reportTooDeep(token) {
+    this.error(
+      Code.NESTING_TOO_DEEP,
+      `Source nests more than ${MAX_NESTING_DEPTH} levels deep`,
+      token,
+      "Flatten the expression or split it into named steps.",
+    );
+    throw new NestingLimitError("nesting too deep");
   }
 
   /** @returns {object} a Program AST node (throws only on unrecoverable input) */
@@ -86,6 +120,7 @@ export class Parser {
         const stmt = this.declaration();
         if (stmt) body.push(stmt);
       } catch (err) {
+        if (err instanceof NestingLimitError) break;
         if (err instanceof ParseError) {
           this.synchronize();
           // Recovery must always make progress. A token that is itself a
@@ -98,7 +133,49 @@ export class Parser {
         }
       }
     }
-    return nodes.program(body, start);
+    const program = nodes.program(body, start);
+    this.checkTreeDepth(body);
+    return program;
+  }
+
+  /**
+   * Reject a tree that nests deeper than the parser allows.
+   *
+   * The descent guard in `statement`/`expression`/… only sees recursion. A
+   * long left-to-right chain such as `1 + 1 + … + 1` is built by a *loop*, so
+   * it costs the parser no depth while still producing a tree as deep as the
+   * chain is long — which the resolver, compiler and interpreter would then
+   * walk recursively. This pass measures the tree with an explicit stack, so
+   * it can find that without overflowing itself.
+   */
+  checkTreeDepth(body) {
+    const stack = body.map((node) => ({ node, depth: 1 }));
+    while (stack.length > 0) {
+      const { node, depth } = stack.pop();
+      if (!node || typeof node !== "object" || typeof node.type !== "string") continue;
+      if (depth > MAX_NESTING_DEPTH) {
+        this.error(
+          Code.NESTING_TOO_DEEP,
+          `Source nests more than ${MAX_NESTING_DEPTH} levels deep`,
+          node.loc ?? this.peek(),
+          "Flatten the expression or split it into named steps.",
+        );
+        return;
+      }
+      for (const key of Object.keys(node)) {
+        if (key === "type" || key === "loc" || key === "binding" || key === "scopeDepth") continue;
+        const value = node[key];
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            if (item && typeof item === "object" && typeof item.type === "string") {
+              stack.push({ node: item, depth: depth + 1 });
+            }
+          }
+        } else if (value && typeof value === "object" && typeof value.type === "string") {
+          stack.push({ node: value, depth: depth + 1 });
+        }
+      }
+    }
   }
 
   /** Parse and throw a `TyphounError` when syntax diagnostics exist. */
@@ -264,6 +341,16 @@ export class Parser {
   }
 
   statement() {
+    this.depth += 1;
+    try {
+      if (this.depth > MAX_NESTING_DEPTH) this.reportTooDeep(this.peek());
+      return this.statementBody();
+    } finally {
+      this.depth -= 1;
+    }
+  }
+
+  statementBody() {
     if (this.check(TokenType.LBRACE)) return this.blockStatement();
     if (this.match(TokenType.IF)) return this.ifStatement(this.previous());
     if (this.match(TokenType.WHILE)) return this.whileStatement(this.previous());
@@ -440,10 +527,26 @@ export class Parser {
   // ------------------------------------------------------------- expressions
 
   expression() {
-    return this.assignment();
+    this.depth += 1;
+    try {
+      if (this.depth > MAX_NESTING_DEPTH) this.reportTooDeep(this.peek());
+      return this.assignment();
+    } finally {
+      this.depth -= 1;
+    }
   }
 
   assignment() {
+    this.depth += 1;
+    try {
+      if (this.depth > MAX_NESTING_DEPTH) this.reportTooDeep(this.peek());
+      return this.assignmentBody();
+    } finally {
+      this.depth -= 1;
+    }
+  }
+
+  assignmentBody() {
     const target = this.or();
     const token = this.peek();
     if (ASSIGN_OPS.has(token.type)) {
@@ -504,12 +607,18 @@ export class Parser {
   }
 
   unary() {
-    if (this.match(TokenType.NOT, TokenType.MINUS)) {
-      const operator = this.previous();
-      const operand = this.unary();
-      return nodes.unaryExpr(OPERATOR_SPELLING[operator.type], operand, operator.location);
+    this.depth += 1;
+    try {
+      if (this.depth > MAX_NESTING_DEPTH) this.reportTooDeep(this.peek());
+      if (this.match(TokenType.NOT, TokenType.MINUS)) {
+        const operator = this.previous();
+        const operand = this.unary();
+        return nodes.unaryExpr(OPERATOR_SPELLING[operator.type], operand, operator.location);
+      }
+      return this.call();
+    } finally {
+      this.depth -= 1;
     }
-    return this.call();
   }
 
   call() {

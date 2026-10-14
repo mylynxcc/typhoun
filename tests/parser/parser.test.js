@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { NodeType } from "../../src/ast/nodes.js";
 import { Code } from "../../src/diagnostics/codes.js";
+import { MAX_NESTING_DEPTH } from "../../src/parser/parser.js";
 import { parse } from "../helpers.js";
 
 function parseOk(source) {
@@ -233,5 +234,35 @@ describe("parser: try/catch", () => {
   it("explains what is missing after the guarded block", () => {
     const { diagnostics } = parse("try { print(1) }");
     assert.ok(diagnostics.items.some((d) => d.code === Code.EXPECTED_TOKEN && /catch/.test(d.message)));
+  });
+});
+
+describe("parser: nesting bound", () => {
+  // Recursive descent spends host stack, so without a bound a small, valid-
+  // looking source file can overflow the JavaScript stack and escape as a raw
+  // `RangeError` instead of a diagnostic. These tests pin the guard down for
+  // both shapes: source the parser recurses through, and source it does not.
+  it("accepts ordinary nesting without complaint", () => {
+    const depth = 40;
+    const ast = parseOk("print(" + "(".repeat(depth) + "1" + ")".repeat(depth) + ")");
+    assert.equal(ast.body.length, 1);
+  });
+
+  it("reports deeply nested parentheses as a diagnostic, not a crash", () => {
+    const { diagnostics } = parse("print(" + "(".repeat(MAX_NESTING_DEPTH * 8) + "1" + ")".repeat(MAX_NESTING_DEPTH * 8) + ")");
+    assert.equal(diagnostics.hasErrors, true);
+    assert.equal(diagnostics.items[0].code, Code.NESTING_TOO_DEEP);
+  });
+
+  it("bounds a deep tree even when the parser built it with a loop", () => {
+    // A long left-associative chain costs the parser no recursion depth, but
+    // still produces a tree the later stages must walk recursively.
+    const { diagnostics } = parse("print(1" + " + 1".repeat(MAX_NESTING_DEPTH * 8) + ")");
+    assert.equal(diagnostics.items[0].code, Code.NESTING_TOO_DEEP);
+  });
+
+  it("bounds unary chains, which never pass through the expression entry", () => {
+    const { diagnostics } = parse("print(" + "-".repeat(MAX_NESTING_DEPTH * 8) + "1)");
+    assert.equal(diagnostics.items[0].code, Code.NESTING_TOO_DEEP);
   });
 });

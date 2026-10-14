@@ -169,7 +169,9 @@ property rather than a claim:
 | `tests/engine/bytecode-invariants.test.js` | structural invariants over every compiled chunk (valid opcodes, jumps in range, slot and constant indices in range, every `TRY_BEGIN` landing on a real handler) |
 | `tests/integration/benchmark.test.js` | the harness itself: both engines really run, mismatches are detected and reported, reports render |
 
-`npm test` runs 613 tests. Parity is checked on **output text**, not just exit
+`npm test` runs 636 tests (on every push and pull request, across Node 20, 22
+and 24 — see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). Parity
+is checked on **output text**, not just exit
 codes, so a divergence surfaces as a test failure instead of a silently
 different program — including the error-handling corpus, where the text of a
 caught error value and the frames in its `stack` have to match to the byte.

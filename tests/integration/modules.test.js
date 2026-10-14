@@ -3,6 +3,9 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Code } from "../../src/diagnostics/codes.js";
 import { checkFile, runFile, ExecutionContext } from "../../src/main/index.js";
 import { fixture, firstDiagnostic, runFixture } from "../helpers.js";
@@ -70,5 +73,28 @@ describe("modules: safety", () => {
   it("reports a module that does not exist", () => {
     const { error } = runCatching(fixture("errors", "missing_module.typ"));
     assert.equal(firstDiagnostic(error).code, Code.MODULE_NOT_FOUND);
+  });
+
+  it("refuses a symlink that points outside the project root", (t) => {
+    // Path checking alone is lexical, so a link *inside* the root can still
+    // reach a file outside it. The loader must compare real paths.
+    const base = mkdtempSync(join(tmpdir(), "typhoun-link-"));
+    try {
+      const root = join(base, "root");
+      mkdirSync(root);
+      writeFileSync(join(base, "secret.typ"), 'print("leaked")\n', "utf8");
+      writeFileSync(join(root, "main.typ"), 'import "link.typ"\nprint("ran")\n', "utf8");
+      try {
+        symlinkSync(join("..", "secret.typ"), join(root, "link.typ"));
+      } catch {
+        t.skip("this platform does not allow creating symlinks");
+        return;
+      }
+      const { error, output } = runCatching(join(root, "main.typ"));
+      assert.equal(firstDiagnostic(error).code, Code.MODULE_OUT_OF_BOUNDS);
+      assert.equal(output.includes("leaked"), false, "the out-of-root module must not run");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
